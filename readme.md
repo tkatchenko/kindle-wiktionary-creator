@@ -1,31 +1,41 @@
-# Dictionary Generator README
+# Kindle Wiktionary Creator
 
 ## Overview
-This project generates a dictionary eBook in OPF format, specifically designed to work with dictionaries from Kaikki.org. Kaikki.org dictionaries are machine-readable and derived from Wiktionary data, providing a comprehensive resource for various languages.
+"Kindle Wiktionary Creator" is a tool for creating custom Kindle dictionaries from Wiktionary definitions sourced from Kaikki.org. It processes these definitions and formats them into Kindle-compatible files, mainly handled by the `create.mjs` script.
 
-## Prerequisites
-- Node.js (latest stable version)
-- A JSON file of word definitions from Kaikki.org
+## Requirements
+- Node.js environment.
+- Wiktionary definitions from Kaikki.org, updated regularly and including data for multiple languages with English glosses and metadata.
+
+## Features
+- Generates Kindle-compatible dictionaries from Kaikki.org Wiktionary definitions.
+- Paginated output with customizable entries per file.
+- Customizable dictionary title and author.
+- Creation of necessary OPF and HTML content files.
 
 ## Installation
-1. Clone this repository.
-2. Navigate to the repository folder in your terminal.
-3. Run `npm install` to install the dependencies.
+1. Clone the repository.
+2. Ensure Node.js is installed.
 
 ## Usage
-To generate your dictionary, run:
-```
-node [script_name.js] [definitions_path.json] [title] [author]
-```
-- Replace `[script_name.js]` with the script's filename.
-- `[definitions_path.json]` should be the path to your Kaikki.org JSON file.
-- `[title]` and `[author]` are optional and default to 'Dictionary' and 'Anonymous', respectively.
+1. Obtain a JSON file with definitions from Kaikki.org.
+2. Run the script in Node.js:
+   ```
+   node create.mjs [definitions-path] [title] [author]
+   ```
 
-## Kaikki.org Data Format
-Ensure your JSON file follows the Kaikki.org format, typically including fields like "word", "lang_code", etc. The data is extracted from the enwiktionary dump using wiktextract and post-processed for machine readability.
+## How It Works
+- Orchestrates dictionary file creation using `createOPFFile`.
+- Manages output directory and file creation.
+- Parses and formats dictionary entries.
+- Outputs to `./output` directory.
 
-## Output
-The script creates HTML files for the cover, content, and copyrights, along with an OPF file in the `./output` directory.
+## Customization
+- Adjust entries per file with `entriesPerFile`.
+- Set title and author via command-line.
 
-## Conversion to eBook Format
-Use tools like KindleGen to convert the OPF and associated files to MOBI or other eBook formats.
+## Contributing
+Contributions are welcome. Ensure adherence to coding best practices and Node.js compatibility.
+
+## License
+Follows Wiktionary's CC-BY-SA and GFDL licensing terms.
