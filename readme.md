@@ -34,8 +34,5 @@
 - Adjust entries per file with `entriesPerFile`.
 - Set title and author via command-line.
 
-## Contributing
-Contributions are welcome. Ensure adherence to coding best practices and Node.js compatibility.
-
 ## License
 Follows Wiktionary's CC-BY-SA and GFDL licensing terms.
