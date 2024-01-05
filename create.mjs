@@ -150,7 +150,7 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
   function createDictionaryEntry(def) {
     let entry = `<idx:entry name="default" scriptable="yes" spell="yes">
       <dt>
-        <idx:orth>${def.word}</idx:orth>`;
+        <idx:orth>${def.word}${def.translations ? `<idx:infl>${def.translations?.filter(translation => translation.word).map(translation => `<idx:iform value="${translation.word}" />`).join('\n')}</idx:infl>` : ''}</idx:orth>`;
 
     if (def.sounds && Array.isArray(def.sounds) && def.sounds.length > 0) {
       let pronunciation = def.sounds.filter(sound => sound && sound.ipa)
