@@ -125,28 +125,27 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
 
   // Function to create dictionary entries
   function createDictionaryEntry(def) {
-    const langCodes = [
-      'en',  // English
-      'es',  // Spanish
-      'it',  // Italian
-      'de',  // German
-      'pt',  // Portuguese
-      'pl',  // Polish
-      'fr',  // French
-      'ca',  // Catalan
-      'sv',  // Swedish
-      'lv',  // Latvian
-      'lt',  // Lithuanian
-      'nl',  // Dutch
-      'ro',  // Romanian
-      'el',  // Greek
-      'hu',  // Hungarian
-      'cs',  // Czech
-      'ga',  // Irish
-      'la'   // Latin
-    ];
-    const translations = def.translations?.filter(translation => translation.word && langCodes.includes(translation.code));
-    const inflections = translations ? `<idx:infl>${translations.map(translation => `<idx:iform value="${translation.word}" />`).join('\n')}</idx:infl>` : '';
+  const isCharInRange = (char) => {
+    const code = char.charCodeAt(0);
+    return code >= 0x0000 && code <= 0x03FF;
+  };
+
+  const isWordInUnicodeRange = (word) => {
+    for (let char of word) {
+      if (!isCharInRange(char)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const translations = def.translations?.filter(translation => 
+    translation.word && isWordInUnicodeRange(translation.word)
+  );
+
+  const inflections = translations ? 
+  `<idx:infl>${translations.map(translation => `<idx:iform value="${translation.word}" />`).join('\n')}</idx:infl>` 
+  : '';
     let entry = `<idx:entry name="default" scriptable="yes" spell="yes">
       <dt>
         <idx:orth>${def.word}${inflections}</idx:orth>`;
