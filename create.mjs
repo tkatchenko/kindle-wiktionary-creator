@@ -5,56 +5,9 @@ import { createInterface } from 'readline';
 async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'Anonymous') {
   const bookId = uuidv4();
   const outputDir = './output';
-
-  // OPF Content
-  const opfContent = `<?xml version="1.0"?>
-<package version="2.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="${bookId}">
-  <metadata>
-    <dc:title>${title}</dc:title>
-    <dc:creator opf:role="aut">${author}</dc:creator>
-    <dc:language>en-us</dc:language>
-    <x-metadata>
-      <DictionaryInLanguage>en-us</DictionaryInLanguage>
-      <DictionaryOutLanguage>en-us</DictionaryOutLanguage>
-      <DefaultLookupIndex>default</DefaultLookupIndex>
-    </x-metadata>
-  </metadata>
-  <manifest>
-    <item id="cover" href="cover.html" media-type="application/xhtml+xml" />
-    <item id="copyright" href="copyright.html" media-type="application/xhtml+xml" />
-    <item id="content" href="content.html" media-type="application/xhtml+xml" />
-  </manifest>
-  <spine>
-    <itemref idref="cover" />
-    <itemref idref="copyright"/>
-    <itemref idref="content"/>
-  </spine>
-  <guide>
-    <reference type="index" title="IndexName" href="content.html"/>
-  </guide>
-</package>`;
-
-  // Cover Content
-  const coverContent = `<html>
-  <head>
-    <meta content="text/html" http-equiv="content-type">
-  </head>
-  <body>
-    <h1>${title}</h1>
-    <h2><em>${author}</em></h2>
-  </body>
-</html>`;
-
-  // Copyright Content
-  const copyrightContent = `<html>
-  <head>
-    <meta content="text/html" http-equiv="content-type">
-  </head>
-  <body>
-    <h1>Copyrights</h1>
-    <p>The original texts of Wiktionary entries are dual-licensed to the public under both the <a href="https://en.wiktionary.org/wiki/Wiktionary:Text_of_Creative_Commons_Attribution-ShareAlike_3.0_Unported_License">Creative Commons Attribution-ShareAlike 3.0 Unported License</a> (CC-BY-SA) and the <a href="https://en.wiktionary.org/wiki/Wiktionary:Text_of_the_GNU_Free_Documentation_License">GNU Free Documentation License (GFDL)</a>. This work adheres to the same licensing terms.</p>
-  </body>
-</html>`;
+  const entriesPerFile = 1000;
+  let contentFileIndex = 0;
+  let currentEntryCount = 0;
 
   // Ensure output directory exists
   if (!fs.existsSync(outputDir)) {
@@ -64,11 +17,37 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
       console.error('Error creating output directory:', err);
       return;
     }
+  } else {
+    // Directory exists, remove all files in it
+    try {
+      const files = await fsPromises.readdir(outputDir);
+      for (const file of files) {
+        await fsPromises.unlink(`${outputDir}/${file}`);
+      }
+    } catch (err) {
+      console.error('Error removing files:', err);
+    }
   }
 
-  // Create write streams for content
-  const contentStream = fs.createWriteStream(`${outputDir}/content.html`);
-  contentStream.write(`
+  function createNewContentFile() {
+    if (currentEntryCount > 0) {
+      contentStream.write(`
+            </mbp:frameset>
+          </body>
+        </html>
+      `);
+      contentStream.end();
+    }
+
+    contentFileIndex++;
+    currentEntryCount = 0;
+
+    contentStream = fs.createWriteStream(`${outputDir}/content_${contentFileIndex}.html`);
+    contentStream.write(contentHeader);
+  }
+
+  // Header for each content file
+  const contentHeader = `
     <html xmlns:math="http://exslt.org/math" xmlns:svg="http://www.w3.org/2000/svg"
         xmlns:tl="https://kindlegen.s3.amazonaws.com/AmazonKindlePublishingGuidelines.pdf"
         xmlns:saxon="http://saxon.sf.net/" xmlns:xs="http://www.w3.org/2001/XMLSchema"
@@ -76,7 +55,6 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
         xmlns:cx="https://kindlegen.s3.amazonaws.com/AmazonKindlePublishingGuidelines.pdf"
         xmlns:dc="http://purl.org/dc/elements/1.1/"
         xmlns:mbp="https://kindlegen.s3.amazonaws.com/AmazonKindlePublishingGuidelines.pdf"
-        xmlns:mmc="https://kindlegen.s3.amazonaws.com/AmazonKindlePublishingGuidelines.pdf"
         xmlns:idx="https://kindlegen.s3.amazonaws.com/AmazonKindlePublishingGuidelines.pdf">
       <head>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
@@ -103,7 +81,10 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
       </head>
       <body>
         <mbp:frameset>
-  `);
+  `;
+
+  // Initialize an array to store dictionary entries
+  let dictionaryEntries = [];
 
   const fileStream = fs.createReadStream(definitionsPath);
   const rl = createInterface({
@@ -111,46 +92,64 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
     crlfDelay: Infinity
   });
 
-  rl.on('line', (line) => {
+  // Read and parse each line, storing the result in the array
+  for await (const line of rl) {
     try {
       const def = JSON.parse(line);
-      const langCodes = [
-        'en',  // English
-        'es',  // Spanish
-        'it',  // Italian
-        'de',  // German
-        'pt',  // Portuguese
-        'pl',  // Polish
-        'fr',  // French
-        'ca',  // Catalan
-        'sv',  // Swedish
-        'lv',  // Latvian
-        'lt',  // Lithuanian
-        'nl',  // Dutch
-        'ro',  // Romanian
-        'el',  // Greek
-        'hu',  // Hungarian
-        'cs',  // Czech
-        'ga',  // Irish
-        'la'   // Latin
-      ];
-
-      if (langCodes.includes(def.lang_code)) {
-        console.log(`Adding "${def.word} (${def.lang_code})"`);
-        const entry = createDictionaryEntry(def);
-        contentStream.write(entry);
-      } else {
-        //console.log(`Rejected "${def.word} (${def.lang_code})"`);
-      }
+      dictionaryEntries.push(def);
     } catch (err) {
       console.error(`Error parsing JSON from line: ${err}`);
     }
+  }
+
+  // Sort the dictionary entries alphabetically
+  dictionaryEntries.sort((a, b) => a.word.localeCompare(b.word));
+
+  // Create initial content file
+  let contentStream;
+  createNewContentFile();
+
+  dictionaryEntries.forEach(def => {
+    try {
+      console.log(`Adding "${def.word}"`);
+      const entry = createDictionaryEntry(def);
+      contentStream.write(entry);
+
+      if (++currentEntryCount >= entriesPerFile) {
+        createNewContentFile();
+      }
+    } catch (err) {
+      console.error(`Error creating entry: ${err}`);
+    }
   });
 
+  // Function to create dictionary entries
   function createDictionaryEntry(def) {
+    const langCodes = [
+      'en',  // English
+      'es',  // Spanish
+      'it',  // Italian
+      'de',  // German
+      'pt',  // Portuguese
+      'pl',  // Polish
+      'fr',  // French
+      'ca',  // Catalan
+      'sv',  // Swedish
+      'lv',  // Latvian
+      'lt',  // Lithuanian
+      'nl',  // Dutch
+      'ro',  // Romanian
+      'el',  // Greek
+      'hu',  // Hungarian
+      'cs',  // Czech
+      'ga',  // Irish
+      'la'   // Latin
+    ];
+    const translations = def.translations?.filter(translation => translation.word && langCodes.includes(translation.code));
+    const inflections = translations ? `<idx:infl>${translations.map(translation => `<idx:iform value="${translation.word}" />`).join('\n')}</idx:infl>` : '';
     let entry = `<idx:entry name="default" scriptable="yes" spell="yes">
       <dt>
-        <idx:orth>${def.word}${def.translations ? `<idx:infl>${def.translations?.filter(translation => translation.word).map(translation => `<idx:iform value="${translation.word}" />`).join('\n')}</idx:infl>` : ''}</idx:orth>`;
+        <idx:orth>${def.word}${inflections}</idx:orth>`;
 
     if (def.sounds && Array.isArray(def.sounds) && def.sounds.length > 0) {
       let pronunciation = def.sounds.filter(sound => sound && sound.ipa)
@@ -181,7 +180,7 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
     }
 
     if (def.senses && Array.isArray(def.senses) && def.senses.length > 0) {
-      let formattedSenses = def.senses.map(sense => Array.isArray(sense) ? sense.glosses : []);
+      let formattedSenses = def.senses.map(sense => sense.glosses);
       entry += createNestedList(formattedSenses);
     }
 
@@ -206,20 +205,70 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
     return entry;
   }
 
-  rl.on('close', () => {
-    contentStream.write(`
-          </mbp:frameset>
-        </body>
-      </html>
-    `);
-    contentStream.end();
-  });
+  // OPF manifest and spine
+  let manifestItems = '';
+  let spineItems = '';
+  for (let i = 1; i <= contentFileIndex; i++) {
+    manifestItems += `<item id="content_${i}" href="content_${i}.html" media-type="application/xhtml+xml" />\n`;
+    spineItems += `<itemref idref="content_${i}" />\n`;
+  }
 
-  // Write files
+  const opfContent = `<?xml version="1.0"?>
+<package version="2.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="${bookId}">
+  <metadata>
+    <dc:title>${title}</dc:title>
+    <dc:creator opf:role="aut">${author}</dc:creator>
+    <dc:language>en-us</dc:language>
+    <meta name="cover" content="cover-image" />
+    <x-metadata>
+      <DictionaryInLanguage>en-us</DictionaryInLanguage>
+      <DictionaryOutLanguage>en-us</DictionaryOutLanguage>
+      <DefaultLookupIndex>default</DefaultLookupIndex>
+    </x-metadata>
+  </metadata>
+  <manifest>
+    <item href="../cover.png" id="cover-image" media-type="image/png" />
+    <item id="cover" href="cover.html" media-type="application/xhtml+xml" />
+    <item id="copyright" href="copyright.html" media-type="application/xhtml+xml" />
+    ${manifestItems}
+  </manifest>
+  <spine>
+    <itemref idref="cover" />
+    <itemref idref="copyright"/>
+    ${spineItems}
+  </spine>
+  <guide>
+    <reference type="index" title="IndexName" href="content_1.html"/>
+  </guide>
+</package>`;
+
+  // Cover Content
+  const coverContent = `<html>
+  <head>
+    <meta content="text/html" http-equiv="content-type">
+  </head>
+  <body>
+    <h1>${title}</h1>
+    <h2><em>${author}</em></h2>
+  </body>
+</html>`;
+
+  // Copyright Content
+  const copyrightContent = `<html>
+  <head>
+    <meta content="text/html" http-equiv="content-type">
+  </head>
+  <body>
+    <h1>Copyrights</h1>
+    <p>The original texts of Wiktionary entries are dual-licensed to the public under both the <a href="https://en.wiktionary.org/wiki/Wiktionary:Text_of_Creative_Commons_Attribution-ShareAlike_3.0_Unported_License">Creative Commons Attribution-ShareAlike 3.0 Unported License</a> (CC-BY-SA) and the <a href="https://en.wiktionary.org/wiki/Wiktionary:Text_of_the_GNU_Free_Documentation_License">GNU Free Documentation License (GFDL)</a>. This work adheres to the same licensing terms.</p>
+  </body>
+</html>`;
+
+  // Write extra files
   try {
-    await fsPromises.writeFile('./output/dictionary.opf', opfContent);
-    await fsPromises.writeFile('./output/cover.html', coverContent);
-    await fsPromises.writeFile('./output/copyright.html', copyrightContent);
+    await fsPromises.writeFile(`${outputDir}/dictionary.opf`, opfContent);
+    await fsPromises.writeFile(`${outputDir}/cover.html`, coverContent);
+    await fsPromises.writeFile(`${outputDir}/copyright.html`, copyrightContent);
   } catch (err) {
     console.error('Error writing files:', err);
   }
