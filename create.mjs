@@ -111,12 +111,14 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
 
   dictionaryEntries.forEach(def => {
     try {
-      console.log(`Adding "${def.word}"`);
-      const entry = createDictionaryEntry(def);
-      contentStream.write(entry);
+      if (def.word) {
+        console.log(`Adding "${def.word}"`);
+        const entry = createDictionaryEntry(def);
+        contentStream.write(entry);
 
-      if (++currentEntryCount >= entriesPerFile) {
-        createNewContentFile();
+        if (++currentEntryCount >= entriesPerFile) {
+          createNewContentFile();
+        }
       }
     } catch (err) {
       console.error(`Error creating entry: ${err}`);
@@ -125,27 +127,28 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
 
   // Function to create dictionary entries
   function createDictionaryEntry(def) {
-  const isCharInRange = (char) => {
-    const code = char.charCodeAt(0);
-    return code >= 0x0000 && code <= 0x03FF;
-  };
+    const isCharInRange = (char) => {
+      const code = char.charCodeAt(0);
+      return code >= 0x0000 && code <= 0x03FF;
+    };
 
-  const isWordInUnicodeRange = (word) => {
-    for (let char of word) {
-      if (!isCharInRange(char)) {
-        return false;
+    const isWordInUnicodeRange = (word) => {
+      for (let char of word) {
+        if (!isCharInRange(char)) {
+          return false;
+        }
       }
-    }
-    return true;
-  };
+      return true;
+    };
 
-  const translations = def.translations?.filter(translation => 
-    translation.word && isWordInUnicodeRange(translation.word)
-  );
+    const translations = def.translations?.filter(translation => 
+      translation.word && isWordInUnicodeRange(translation.word)
+    );
 
-  const inflections = translations ? 
-  `<idx:infl>${translations.map(translation => `<idx:iform value="${translation.word}" />`).join('\n')}</idx:infl>` 
-  : '';
+    const inflections = translations ? 
+      `<idx:infl>${translations.map(translation => `<idx:iform value="${translation.word}" />`).join('\n')}</idx:infl>` 
+      : '';
+
     let entry = `<idx:entry name="default" scriptable="yes" spell="yes">
       <dt>
         <idx:orth>${def.word}${inflections}</idx:orth>`;
