@@ -1,6 +1,7 @@
 import fs, { promises as fsPromises } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { createInterface } from 'readline';
+import beautify from 'js-beautify';
 
 async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'Anonymous') {
   const bookId = uuidv4();
@@ -8,6 +9,48 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
   const entriesPerFile = 1000;
   let contentFileIndex = 0;
   let currentEntryCount = 0;
+  let contentBuffer = '';
+
+  const posMap = {
+    'noun': 'n',
+    'particle': 'part',
+    'suffix': 'suf',
+    'symbol': 'sym',
+    'interfix': 'interf',
+    'conj': 'conj',
+    'infix': 'inf',
+    'pron': 'pron',
+    'prefix': 'pref',
+    'verb': 'v',
+    'affix': 'aff',
+    'prep': 'prep',
+    'adj': 'adj',
+    'name': 'n',
+    'intj': 'interj',
+    'adv': 'adv',
+    'contraction': 'contr',
+    'det': 'det',
+    'phrase': 'phr',
+    'prep_phrase': 'prep phr',
+    'character': 'char',
+    'num': 'num',
+    'article': 'art',
+    'proverb': 'prov',
+    'circumfix': 'circ',
+    'postp': 'postp',
+    'adv_phrase': 'adv phr',
+    'punct': 'punct'
+  };
+
+  // Basic HTML minification
+  function minifyHTML(html) {
+    return html
+      .replace(/\n/g, '')
+      .replace(/\t/g, '')
+      .replace(/ +/g, ' ')
+      .replace(/>\s+</g, '><')
+      .replace(/<!--.*?-->/gs, '');
+  }
 
   // Ensure output directory exists
   if (!fs.existsSync(outputDir)) {
@@ -30,25 +73,26 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
   }
 
   function createNewContentFile() {
-    if (currentEntryCount > 0) {
-      contentStream.write(`
-            </mbp:frameset>
+    if (contentBuffer !== '') {
+      contentBuffer += `</mbp:frameset>
           </body>
         </html>
-      `);
-      contentStream.end();
-    }
+      `;
 
-    contentFileIndex++;
+      contentFileIndex++;
+
+      const beautifiedContent = beautify.html(contentBuffer, { indent_size: 2, space_in_empty_paren: true });
+      fs.writeFileSync(`${outputDir}/content_${contentFileIndex}.html`, minifyHTML(beautifiedContent));
+      contentBuffer = '';
+    }
     currentEntryCount = 0;
 
-    contentStream = fs.createWriteStream(`${outputDir}/content_${contentFileIndex}.html`);
-    contentStream.write(contentHeader);
+    contentBuffer = contentHeader;
   }
 
   // Header for each content file
-  const contentHeader = `
-    <html xmlns:math="http://exslt.org/math" xmlns:svg="http://www.w3.org/2000/svg"
+  const contentHeader = `<html
+        xmlns:math="http://exslt.org/math" xmlns:svg="http://www.w3.org/2000/svg"
         xmlns:tl="https://kindlegen.s3.amazonaws.com/AmazonKindlePublishingGuidelines.pdf"
         xmlns:saxon="http://saxon.sf.net/" xmlns:xs="http://www.w3.org/2001/XMLSchema"
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -57,7 +101,7 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
         xmlns:mbp="https://kindlegen.s3.amazonaws.com/AmazonKindlePublishingGuidelines.pdf"
         xmlns:idx="https://kindlegen.s3.amazonaws.com/AmazonKindlePublishingGuidelines.pdf">
       <head>
-        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
         <style>
           dt {
             font-weight: bold;
@@ -85,6 +129,7 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
 
   // Initialize an array to store dictionary entries
   let dictionaryEntries = [];
+  const forms = [];
 
   const fileStream = fs.createReadStream(definitionsPath);
   const rl = createInterface({
@@ -93,28 +138,54 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
   });
 
   // Read and parse each line, storing the result in the array
+  console.log('Reading...');
   for await (const line of rl) {
     try {
       const def = JSON.parse(line);
       dictionaryEntries.push(def);
+      if (def.forms) forms.push(...def.forms.map(form => form.form));
     } catch (err) {
       console.error(`Error parsing JSON from line: ${err}`);
     }
   }
 
+  console.log('Filtering...');
+  const formsSet = new Set(forms);
+  dictionaryEntries = dictionaryEntries.filter(def => 
+    def.forms && def.forms.length > 0 || !formsSet.has(def.word)
+  );
+
   // Sort the dictionary entries alphabetically
+  console.log('Sorting...');
   dictionaryEntries.sort((a, b) => a.word.localeCompare(b.word));
 
-  // Create initial content file
-  let contentStream;
   createNewContentFile();
 
+  const isCharInRange = (char) => {
+    const code = char.charCodeAt(0);
+    return code >= 0x0000 && code <= 0x007F;
+  };
+
+  const isWordInUnicodeRange = (word) => {
+    for (let char of word) {
+      if (!isCharInRange(char)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const isWordSuitable = (word) => {
+    return /^[A-Za-z]/.test(word);
+  };
+
+  console.log('Creating...');
   dictionaryEntries.forEach(def => {
     try {
-      if (def.word) {
+      if (def.word && def.word.trim()) {
         console.log(`Adding "${def.word}"`);
         const entry = createDictionaryEntry(def);
-        contentStream.write(entry);
+        contentBuffer += entry;
 
         if (++currentEntryCount >= entriesPerFile) {
           createNewContentFile();
@@ -122,48 +193,40 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
       }
     } catch (err) {
       console.error(`Error creating entry: ${err}`);
+      console.error(err.stack);
     }
   });
 
+  if (contentBuffer !== '') {
+    createNewContentFile();
+  }
+
   // Function to create dictionary entries
   function createDictionaryEntry(def) {
-    const isCharInRange = (char) => {
-      const code = char.charCodeAt(0);
-      return code >= 0x0000 && code <= 0x03FF;
-    };
-
-    const isWordInUnicodeRange = (word) => {
-      for (let char of word) {
-        if (!isCharInRange(char)) {
-          return false;
-        }
-      }
-      return true;
-    };
-
+    const forms = def.forms?.map(form => form.form) || [];
     const translations = def.translations?.filter(translation => 
       translation.word && isWordInUnicodeRange(translation.word)
-    );
+    ).map(translation => translation.word) || [];
 
-    const inflections = translations ? 
-      `<idx:infl>${translations.map(translation => `<idx:iform value="${translation.word}" />`).join('\n')}</idx:infl>` 
+    const inflections = [...forms, ...translations].filter(Boolean);
+
+    const inflectionsCode = (inflections && inflections.length > 0) ? 
+      `<idx:infl>${inflections.slice(0, 254).map(inflection => `<idx:iform value="${inflection.replace(/"/g, "'")}" />`).join('')}</idx:infl>` 
       : '';
 
-    let entry = `<idx:entry name="default" scriptable="yes" spell="yes">
-      <dt>
-        <idx:orth>${def.word}${inflections}</idx:orth>`;
+    let entry = `<idx:entry scriptable="yes" spell="yes"><dt><idx:orth>${def.word}${inflectionsCode}</idx:orth>`;
 
-    if (def.sounds && Array.isArray(def.sounds) && def.sounds.length > 0) {
+    /*if (def.sounds && Array.isArray(def.sounds) && def.sounds.length > 0) {
       let pronunciation = def.sounds.filter(sound => sound && sound.ipa)
         .map(sound => `${sound.tags && Array.isArray(sound.tags) ? `<i>${sound.tags.join(', ')}</i>` : ''} ${sound.ipa}`)
         .join(', ');
       entry += ` <phonetic>${pronunciation}</phonetic>`;
-    }
+    }*/
 
     entry += `</dt><br /><dd>`;
 
     if (def.pos) {
-      entry += `<i>${def.lang} ${def.pos}</i> `;
+      entry += `<i>${posMap[def.pos] || def.pos}</i> `;
     }
 
     function createNestedList(senses, depth = 0) {
@@ -171,7 +234,7 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
         return '';
       }
 
-      let uniqueEntries = [...new Set(senses.map(sense => sense[depth]))];
+      let uniqueEntries = [...new Set(senses.map(sense => Array.isArray(sense) && sense.length > depth ? sense[depth] : null))];
       let list = '<ol>';
       uniqueEntries.forEach(entry => {
         let filteredSenses = senses.filter(sense => sense && sense[depth] === entry);
@@ -189,10 +252,10 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
     entry += `</dd>`;
 
     if (def.etymology_text) {
-      entry += `<i>Etymology</i>: ${def.etymology_text}<br />`;
+      entry += `<br /><i>${def.etymology_text}</i><br />`;
     }
 
-    if (def.forms && Array.isArray(def.forms) && def.forms.length > 0) {
+    /*if (def.forms && Array.isArray(def.forms) && def.forms.length > 0) {
       let forms = def.forms.map(form => `${form && form.form ? form.form : ''} (${form && Array.isArray(form.tags) ? form.tags.join(', ') : ''})`).join(', ');
       entry += `<i>Forms:</i> ${forms}<br />`;
     }
@@ -200,9 +263,10 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
     if (def.synonyms && Array.isArray(def.synonyms) && def.synonyms.length > 0) {
       let synonyms = def.synonyms.map(syn => syn && syn.word ? syn.word : '').join(', ');
       entry += `<i>Synonyms:</i> ${synonyms}<br />`;
-    }
+    }*/
 
-    entry += `</idx:entry>`;
+    entry += `
+      </idx:entry>`;
 
     return entry;
   }
@@ -223,9 +287,8 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
     <dc:language>en-us</dc:language>
     <meta name="cover" content="cover-image" />
     <x-metadata>
-      <DictionaryInLanguage>en-us</DictionaryInLanguage>
-      <DictionaryOutLanguage>en-us</DictionaryOutLanguage>
-      <DefaultLookupIndex>default</DefaultLookupIndex>
+      <DictionaryInLanguage>en</DictionaryInLanguage>
+      <DictionaryOutLanguage>en</DictionaryOutLanguage>
     </x-metadata>
   </metadata>
   <manifest>
@@ -239,9 +302,7 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
     <itemref idref="copyright"/>
     ${spineItems}
   </spine>
-  <guide>
-    <reference type="index" title="IndexName" href="content_1.html"/>
-  </guide>
+  <guide></guide>
 </package>`;
 
   // Cover Content
@@ -266,7 +327,6 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
   </body>
 </html>`;
 
-  // Write extra files
   try {
     await fsPromises.writeFile(`${outputDir}/dictionary.opf`, opfContent);
     await fsPromises.writeFile(`${outputDir}/cover.html`, coverContent);
@@ -276,8 +336,6 @@ async function createOPFFile(definitionsPath, title = 'Dictionary', author = 'An
   }
 }
 
-// Process arguments
 const [,, definitionsPath, title, author] = process.argv;
 
-// Execute the function
 createOPFFile(definitionsPath, title, author);
